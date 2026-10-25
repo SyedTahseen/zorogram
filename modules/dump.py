@@ -81,6 +81,7 @@ class DumpModule(BaseModule):
         self._fmt: dict[int, str] = {}
         self._pending: dict[int, tuple[int, Batch]] = {}
         self._seq = 0
+        self._search: dict[int, tuple[str, list[tuple[str, str, bool, bool]]]] = {}
 
     def get_commands(self):
         return {
@@ -605,7 +606,35 @@ class DumpModule(BaseModule):
         await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
         return True
 
-    SEARCH_MAX = 8
+    SEARCH_PAGE = 8
+    SEARCH_KEEP = 50
+    SEARCH_CHATS = 200
+
+    def _search_view(self, chat_id: int, page: int):
+        entry = self._search.get(chat_id)
+        if not entry:
+            return None
+        query, users = entry
+        pages = max(1, -(-len(users) // self.SEARCH_PAGE))
+        page = min(max(page, 1), pages)
+        chunk = users[(page - 1) * self.SEARCH_PAGE : page * self.SEARCH_PAGE]
+        start = (page - 1) * self.SEARCH_PAGE
+        lines, rows = [], []
+        for i, (username, full_name, verified, private) in enumerate(chunk, start + 1):
+            badges = ("✅" if verified else "") + ("🔒" if private else "")
+            name = f" · {_esc(_clip(full_name, 40))}" if full_name else ""
+            lines.append(f"{i}. @{_esc(username)}{name} {badges}".rstrip())
+            rows.append([_btn(f"@{username}", "op", username)])
+        nav = []
+        if page > 1:
+            nav.append(_btn("◀ Prev", "sp", str(page - 1)))
+        if page < pages:
+            nav.append(_btn("More ▶", "sp", str(page + 1)))
+        if nav:
+            rows.append(nav)
+        head = f"{len(users)} accounts found · page {page}/{pages}"
+        text = screen(f"Results for “{_esc(query)}”", head + "\n\n" + "\n".join(lines) + "\n\nTap an account to open it.")
+        return text, InlineKeyboardMarkup(rows)
 
     async def cmd_search(self, args, update):
         message = update.effective_message
@@ -618,18 +647,35 @@ class DumpModule(BaseModule):
         except Exception as e:
             await message.reply_text(bad(self._explain(e)))
             return
-        users = [u for u in (found or []) if getattr(u, "username", None)][: self.SEARCH_MAX]
+        users, seen = [], set()
+        for u in found or []:
+            name = getattr(u, "username", None)
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            users.append((name, getattr(u, "full_name", "") or "", bool(getattr(u, "is_verified", False)), bool(getattr(u, "is_private", False))))
+        users = users[: self.SEARCH_KEEP]
         if not users:
             await message.reply_text(bad(f"No accounts found for “{query}”. Try another spelling."))
             return
-        lines, rows = [], []
-        for i, u in enumerate(users, 1):
-            badges = ("✅" if u.is_verified else "") + ("🔒" if u.is_private else "")
-            name = f" · {_esc(_clip(u.full_name, 40))}" if u.full_name else ""
-            lines.append(f"{i}. @{_esc(u.username)}{name} {badges}".rstrip())
-            rows.append([_btn(f"@{u.username}", "op", u.username)])
-        text = screen(f"Results for “{_esc(query)}”", "\n".join(lines) + "\n\nTap an account to open it.")
-        await message.reply_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows), disable_web_page_preview=True)
+        chat_id = message.chat_id
+        self._search.pop(chat_id, None)
+        self._search[chat_id] = (query, users)
+        while len(self._search) > self.SEARCH_CHATS:
+            self._search.pop(next(iter(self._search)))
+        text, markup = self._search_view(chat_id, 1)
+        await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+
+    async def _on_search_page(self, query, arg: str) -> None:
+        view = self._search_view(query.message.chat_id, int(arg)) if arg.isdigit() else None
+        if not view:
+            await query.message.reply_text(bad("These results expired. Run /search again."))
+            return
+        text, markup = view
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+        except Exception:
+            pass  # same page tapped twice: nothing to change
 
     async def cmd_profile(self, args, update):
         username = await self._target(args, update, "/profile <username or link>")
@@ -690,6 +736,10 @@ class DumpModule(BaseModule):
 
         if act in ("pz", "ps", "pc"):
             await self._on_choice(bot, query, act, arg)
+            return
+
+        if act == "sp":
+            await self._on_search_page(query, arg)
             return
 
         if act == "h":
