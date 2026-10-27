@@ -231,21 +231,15 @@ class DumpModule(BaseModule):
         return "\n".join(lines)
 
     @staticmethod
-    def _menu(username: str, private: bool) -> InlineKeyboardMarkup:
-        rows = []
-        if not private:
-            rows.append([_btn("Posts", "pm", username), _btn("Reels", "rm", username)])
-            rows.append([_btn("Stories", "st", username), _btn("Highlights", "hl", username)])
-        rows.append([_btn("Profile picture", "pp", username), _btn("Profile JSON", "js", username)])
-        if not private:
-            rows.append([_btn("Followers / Following", "lm", username)])
-        rows.append([InlineKeyboardButton("Open on Instagram", url=f"https://www.instagram.com/{username}/")])
-        return InlineKeyboardMarkup(rows)
-
-    @staticmethod
-    def _count_menu(kind: str, username: str) -> InlineKeyboardMarkup:
-        row = [_btn("All", f"{kind}0", username)] + [_btn(f"{n}", f"{kind}{n}", username) for n in (5, 10, 20)]
-        return InlineKeyboardMarkup([row, [_btn("Type a number", "cu", f"{kind}:{username}")], [_btn("Back", "bk", username)]])
+    def _menu(username: str, private: bool) -> InlineKeyboardMarkup | None:
+        if private:
+            return None
+        # Same behaviour as /posts, /reels, /stories and /highlights: one tap, no count menu.
+        return InlineKeyboardMarkup([
+            [_btn("Posts", "p0", username), _btn("Reels", "r0", username)],
+            [_btn("Stories", "st", username), _btn("Highlights", "hl", username)],
+            [_btn("Followers / Following", "lm", username)],
+        ])
 
     def _list_menu(self, chat_id: int, username: str) -> InlineKeyboardMarkup:
         fmt = self._fmt.get(chat_id, "txt")
@@ -775,18 +769,15 @@ class DumpModule(BaseModule):
                 pass
             return
 
-        if act in ("pm", "rm", "bk"):
-            if act == "bk":
-                private = self._private.get(username)
-                if private is None:
-                    try:
-                        private = bool((await self._profile(username)).is_private)
-                    except Exception as e:
-                        await query.message.reply_text(bad(self._explain(e)))
-                        return
-                markup = self._menu(username, private)
-            else:
-                markup = self._count_menu("p" if act == "pm" else "r", username)
+        if act == "bk":
+            private = self._private.get(username)
+            if private is None:
+                try:
+                    private = bool((await self._profile(username)).is_private)
+                except Exception as e:
+                    await query.message.reply_text(bad(self._explain(e)))
+                    return
+            markup = self._menu(username, private)
             try:
                 await query.edit_message_reply_markup(reply_markup=markup)
             except TelegramError:
