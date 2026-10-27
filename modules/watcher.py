@@ -21,7 +21,15 @@ from utils.ui import BLUE, CORE_COMMANDS, NOT_CONNECTED, bad, btn, kb, onoff, sc
 
 log = get_logger("watcher")
 
-PACES = {"safe": (1200, (10.0, 20.0)), "normal": (600, (6.0, 14.0)), "fast": (300, (4.0, 8.0))}
+# (seconds between quick checks, gap between accounts, seconds between slow checks)
+# Quick checks = new posts/reels and stories (what you want to hear about fast): 2 Instagram calls.
+# Slow checks = profile changes, highlights, edits/removals, milestones: they change rarely.
+PACES = {
+    "safe": (600, (10.0, 20.0), 1800),
+    "normal": (300, (6.0, 14.0), 1200),
+    "fast": (180, (4.0, 8.0), 900),
+}
+FAST_POSTS = 8  # latest posts read on a quick check (leaves room for pinned posts)
 TICK = 60
 MAX_NEW_PER_CHECK = 5
 THROTTLE_PAUSE = 900
@@ -50,7 +58,7 @@ BASELINES = {"posts": "seen_posts", "stories": "seen_stories", "profile": "snap"
 def new_entry(pk: str, flags: set[str]) -> dict:
     entry = {
         "pk": str(pk), "paused": False, "interval": 0,
-        "last": 0.0, "next": 0.0, "added": datetime.now(timezone.utc).isoformat(),
+        "last": 0.0, "next": 0.0, "next_slow": 0.0, "added": datetime.now(timezone.utc).isoformat(),
         "seen_posts": None, "seen_stories": None, "snap": None, "hl": None, "tracked": None,
     }
     for code, (key, _name, _short) in FLAGS.items():
@@ -147,11 +155,14 @@ class WatcherModule(BaseModule):
         prefs = getattr(self.ctx, "prefs", None)
         return prefs.get(key) if prefs else DEFAULTS[key]
 
-    def _pace(self) -> tuple[int, tuple[float, float]]:
+    def _pace(self) -> tuple[int, tuple[float, float], int]:
         return PACES.get(self._pref("pace"), PACES["normal"])
 
     def _interval(self, entry: dict) -> int:
         return entry.get("interval") or self._pace()[0]
+
+    def _slow_interval(self, entry: dict) -> int:
+        return max(self._pace()[2], self._interval(entry) * 4)
 
     def _enabled(self) -> bool:
         manager = getattr(self.ctx, "modules", None)
@@ -232,10 +243,10 @@ class WatcherModule(BaseModule):
         due = [u for u, e in self._watch.items() if not e["paused"] and (force or now >= e["next"])]
         if due:
             async with self._check_lock:
-                if not await self._check_list(due):
+                if not await self._check_list(due, full=force):
                     self._paused_until = time.time() + THROTTLE_PAUSE
 
-    async def _check_list(self, names: list[str]) -> bool:
+    async def _check_list(self, names: list[str], full: bool = False) -> bool:
         gap = self._pace()[1]
         for i, username in enumerate(names):
             entry = self._watch.get(username)
@@ -243,8 +254,9 @@ class WatcherModule(BaseModule):
                 continue
             if i:
                 await asyncio.sleep(random.uniform(*gap))
+            slow = full or time.time() >= entry.get("next_slow", 0.0)
             try:
-                await self._check_one(username, entry)
+                await self._check_one(username, entry, slow)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -254,6 +266,8 @@ class WatcherModule(BaseModule):
                 now = time.time()
                 entry["last"] = now
                 entry["next"] = now + self._interval(entry) * random.uniform(0.8, 1.3)
+                if slow:
+                    entry["next_slow"] = now + self._slow_interval(entry) * random.uniform(0.8, 1.3)
                 async with self._lock:
                     await self._save()
         self._last_check = time.time()
@@ -289,21 +303,24 @@ class WatcherModule(BaseModule):
         log.warning("Watcher check for @%s failed (%s: %s)", username, type(e).__name__, str(e)[:200])
         return True
 
-    async def _check_one(self, username: str, entry: dict) -> None:
+    async def _check_one(self, username: str, entry: dict, slow: bool = True) -> None:
         pk = entry["pk"]
+        track = slow and (entry["edits"] or entry["engagement"])
         medias = None
-        if entry["posts"] or entry["edits"] or entry["engagement"]:
-            medias = await self._ig(lambda: self.ctx.ig.cl.user_medias(pk, TRACK_POSTS))
+        if entry["posts"] or track:
+            amount = TRACK_POSTS if track else FAST_POSTS
+            medias = await self._ig(lambda: self.ctx.ig.cl.user_medias(pk, amount))
         if entry["posts"]:
             await self._new_posts(username, entry, medias)
-        if entry["edits"] or entry["engagement"]:
+        if track:
             await self._track_posts(username, entry, medias)
         if entry["stories"]:
             await self._new_stories(username, entry)
-        if entry["profile"] or entry["engagement"]:
-            await self._profile_changes(username, entry)
-        if entry["highlights"]:
-            await self._highlights(username, entry)
+        if slow:
+            if entry["profile"] or entry["engagement"]:
+                await self._profile_changes(username, entry)
+            if entry["highlights"]:
+                await self._highlights(username, entry)
 
     async def _announce(self, username: str, m, label: str) -> bool:
         if label == "story":
@@ -476,6 +493,7 @@ class WatcherModule(BaseModule):
             return False, self._explain(e)
         now = time.time()
         entry["last"], entry["next"] = now, now + self._interval(entry) * random.uniform(0.8, 1.3)
+        entry["next_slow"] = now + self._slow_interval(entry) * random.uniform(0.8, 1.3)
         async with self._lock:
             if username in self._watch or len(self._watch) >= self.max_watch:
                 return False, bad("Could not add it: already watched, or the list is full.")
