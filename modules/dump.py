@@ -550,14 +550,18 @@ class DumpModule(BaseModule):
         return used, len(medias)
 
     async def _show_highlights(self, bot, chat_id: int, username: str) -> None:
+        status = await Progress.begin(bot, chat_id, "Loading highlights", f"@{username}", "Reading profile")
         try:
             user = await self._public_profile(username)
+            await status.set("Reading highlights", None)
             highlights = await self._ig(lambda: self.ctx.ig.cl.user_highlights(str(user.pk)))
         except Exception as e:
-            await bot.send_message(chat_id, bad(self._explain(e)))
+            if not isinstance(e, (PermissionError, RuntimeError)):
+                log.warning("Highlights for @%s failed: %s", username, e)
+            await status.fail(self._explain(e))
             return
         if not highlights:
-            await bot.send_message(chat_id, bad(f"@{username} has no highlights."))
+            await status.fail(f"@{username} has no highlights.")
             return
         rows, row = [], []
         for h in highlights[:HIGHLIGHT_BUTTONS]:
@@ -568,10 +572,12 @@ class DumpModule(BaseModule):
                 row = []
         if row:
             rows.append(row)
-        await bot.send_message(
-            chat_id, screen(f"Highlights of @{username}", "Tap one to download it."), parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
+        text = screen(f"Highlights of @{username}", "Tap one to download it.")
+        markup = InlineKeyboardMarkup(rows)
+        try:  # turn the progress message into the list
+            await status.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except TelegramError:
+            await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
     async def _target(self, args, update, usage: str) -> str | None:
         username = parse_target(args[0]) if args else None
@@ -581,24 +587,36 @@ class DumpModule(BaseModule):
 
     async def _card_message(self, update, username: str, detailed: bool, with_menu: bool) -> bool:
         message = update.effective_message
+        status = await Progress.begin(message.get_bot(), message.chat_id, "Loading profile", f"@{username}", "Reading profile")
         try:
             user = await self._profile(username)
+            if detailed:
+                await status.set("Reading account details")
+            about = await self._about(user) if detailed else None
+            await status.set("Fetching profile picture")
+            pic = str(user.profile_pic_url_hd or user.profile_pic_url or "")
+            data = await self._fetch(pic) if pic else None
         except Exception as e:
-            await message.reply_text(bad(self._explain(e)))
+            if not isinstance(e, (PermissionError, RuntimeError)):
+                log.warning("Profile @%s failed: %s", username, e)
+            await status.fail(self._explain(e))
             return False
-        about = await self._about(user) if detailed else None
         text = self._card(user, detailed, about, self._extras(user) if detailed else None)
         markup = self._menu(username, bool(user.is_private)) if with_menu else None
-        pic = str(user.profile_pic_url_hd or user.profile_pic_url or "")
-        data = await self._fetch(pic) if pic else None
-        if data:
+        try:
+            if data:
+                try:
+                    await message.reply_photo(photo=data, caption=text, parse_mode="HTML", reply_markup=markup)
+                    return True
+                except BadRequest as e:
+                    log.info("Card photo refused (%s), sending text", e)
+            await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+            return True
+        finally:
             try:
-                await message.reply_photo(photo=data, caption=text, parse_mode="HTML", reply_markup=markup)
-                return True
-            except BadRequest as e:
-                log.info("Card photo refused (%s), sending text", e)
-        await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
-        return True
+                await status.message.delete()
+            except TelegramError:
+                pass
 
     SEARCH_PAGE = 8
     SEARCH_KEEP = 50
@@ -636,10 +654,13 @@ class DumpModule(BaseModule):
         if len(query) < 2 or len(query) > 60:
             await message.reply_text(bad("Usage: /search <name>\nSend at least 2 characters, for example /search nasa official."))
             return
+        status = await Progress.begin(message.get_bot(), message.chat_id, "Searching accounts", f"“{query}”", "Asking Instagram")
         try:
             found = await self._ig(lambda: self.ctx.ig.cl.search_users(query))
         except Exception as e:
-            await message.reply_text(bad(self._explain(e)))
+            if not isinstance(e, (PermissionError, RuntimeError)):
+                log.warning("Search %r failed: %s", query, e)
+            await status.fail(self._explain(e))
             return
         users, seen = [], set()
         for u in found or []:
@@ -650,7 +671,7 @@ class DumpModule(BaseModule):
             users.append((name, getattr(u, "full_name", "") or "", bool(getattr(u, "is_verified", False)), bool(getattr(u, "is_private", False))))
         users = users[: self.SEARCH_KEEP]
         if not users:
-            await message.reply_text(bad(f"No accounts found for “{query}”. Try another spelling."))
+            await status.fail(f"No accounts found for “{query}”. Try another spelling.")
             return
         chat_id = message.chat_id
         self._search.pop(chat_id, None)
@@ -658,7 +679,10 @@ class DumpModule(BaseModule):
         while len(self._search) > self.SEARCH_CHATS:
             self._search.pop(next(iter(self._search)))
         text, markup = self._search_view(chat_id, 1)
-        await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+        try:  # turn the progress message into the results
+            await status.message.edit_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+        except TelegramError:
+            await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
 
     async def _on_search_page(self, query, arg: str) -> None:
         view = self._search_view(query.message.chat_id, int(arg)) if arg.isdigit() else None

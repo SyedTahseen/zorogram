@@ -16,6 +16,7 @@ from telegram.error import BadRequest
 from core.auth import describe_error
 from modules.base import BaseModule
 from utils.logger import get_logger
+from utils.progress import Progress
 from utils.caption import CAPTION_LIMIT, CAPTION_TZ, build_caption, fmt_size, short_num  # noqa: F401
 from utils.tgsend import DONE_REACTION, clip, esc, send_one, set_reaction  # noqa: F401
 from utils.ui import BUSY, NOT_CONNECTED, bad
@@ -445,9 +446,13 @@ class AutoDownloadModule(BaseModule):
             return
         self._busy.add(chat_id)
         await set_reaction(bot, message, DONE_REACTION)
+        titles = {"reel": "Downloading reel", "post": "Downloading post", "story": "Downloading story", "highlight": "Downloading highlight"}
+        subject = re.sub(r"^https?://(?:www\.|m\.)?", "", url).split("?")[0][:50]
+        status = await Progress.begin(bot, chat_id, titles.get(category, "Downloading"), subject, "Reading link")
         try:
             with tempfile.TemporaryDirectory(prefix="hyperig-dl-") as temp:
                 folder = Path(temp)
+                await status.set("Downloading from Instagram")
                 result = await self._ig(lambda: self._download_sync(url, category, folder))
                 paths = result["paths"]
                 if not paths:
@@ -459,11 +464,13 @@ class AutoDownloadModule(BaseModule):
                     markup = InlineKeyboardMarkup(
                         [[InlineKeyboardButton("Download original audio", callback_data=f"m:autodl:a:{result['pk']}")]]
                     )
+                await status.set("Sending to Telegram")
                 await self._send_paths(bot, chat_id, paths, caption, markup=markup)
+                await status.done(f"Sent {len(paths)} file{'s' if len(paths) != 1 else ''} · {fmt_size(total)}")
         except Exception as e:
             log.info("Instagram link download failed (%s: %s)", type(e).__name__, str(e)[:200])
             await set_reaction(bot, message)
-            await message.reply_text(bad(self._explain(e)))
+            await status.fail(self._explain(e))
         finally:
             self._busy.discard(chat_id)
 
@@ -500,6 +507,7 @@ class AutoDownloadModule(BaseModule):
 
     async def _download_audio_by_pk(self, bot, chat_id: int, media_pk: str, reply_to: int | None = None) -> None:
         self._busy.add(chat_id)
+        status = await Progress.begin(bot, chat_id, "Downloading audio", "Original audio", "Reading reel")
         try:
             with tempfile.TemporaryDirectory(prefix="hyperig-audio-") as temp:
                 folder = Path(temp)
@@ -518,10 +526,11 @@ class AutoDownloadModule(BaseModule):
                 paths = await self._ig(download)
                 if not paths:
                     raise RuntimeError("Instagram returned no audio file.")
+                await status.set("Sending to Telegram")
                 await self._send_paths(bot, chat_id, paths, "", reply_to=reply_to)
+                await status.done("Original audio sent")
         except Exception as e:
-            reply = ReplyParameters(message_id=reply_to, allow_sending_without_reply=True) if reply_to else None
-            await bot.send_message(chat_id, bad(self._explain(e)), reply_parameters=reply)
+            await status.fail(self._explain(e))
         finally:
             self._busy.discard(chat_id)
 
