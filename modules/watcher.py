@@ -43,10 +43,6 @@ FLAGS = {
     "ed": ("edits", "Edits & removals", "edits"),
     "en": ("engagement", "Milestones", "milestones"),
 }
-WORDS = {
-    "posts": "p", "reels": "p", "stories": "s", "profile": "pr", "highlights": "hl",
-    "edits": "ed", "engagement": "en", "milestones": "en",
-}
 DEFAULT_FLAGS = set(FLAGS)
 BASELINES = {"posts": "seen_posts", "stories": "seen_stories", "profile": "snap", "highlights": "hl", "edits": "tracked", "engagement": "tracked"}
 

@@ -86,14 +86,3 @@ class ModuleManager:
                 await module.on_stop()
             except Exception:
                 log.exception("Module %s failed to stop", module.name)
-
-    async def process_message(self, message):
-        for module in self.modules:
-            try:
-                message = await module.process(message)
-            except Exception:
-                log.exception("Module %s failed on a message", module.name)
-                continue
-            if message is None:
-                return None
-        return message

@@ -77,7 +77,6 @@ class Config:
     ig_bloks_versioning_id: str | None = None
     ig_override_app_version: bool = False
     ig_legacy_login: bool = False
-    ig_cookie_upgrade: bool = False
     ig_delay_range: tuple = (1.0, 3.0)
     ig_tls_verify: bool | str = True
     ig_read_timeout: int | None = None

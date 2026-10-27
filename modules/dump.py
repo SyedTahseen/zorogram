@@ -71,7 +71,7 @@ class DumpModule(BaseModule):
     name = "dump"
     toggleable = True
     label = "Profile tools"
-    description = "Send a username to open a public profile, or use /profile, /posts and the other profile commands"
+    description = "Send a username to open a public profile, or use /search, /profile, /posts and the other profile commands"
 
     def __init__(self, ctx):
         super().__init__(ctx)
@@ -265,21 +265,8 @@ class DumpModule(BaseModule):
             log.info("Could not download media (%s)", e)
             return None
 
-    @staticmethod
-    def _post_meta(m) -> dict:
-        return {
-            "code": m.code,
-            "url": f"https://www.instagram.com/p/{m.code}/" if m.code else None,
-            "type": m.product_type or {1: "photo", 2: "video", 8: "album"}.get(m.media_type, str(m.media_type)),
-            "taken_at": m.taken_at.isoformat() if m.taken_at else None,
-            "caption": m.caption_text,
-            "likes": m.like_count if (m.like_count or 0) >= 0 else None,
-            "comments": m.comment_count,
-            "views": m.view_count or m.play_count,
-        }
-
     TITLES = {"p": "Downloading posts", "r": "Downloading reels", "st": "Downloading stories", "h": "Downloading highlight",
-              "pp": "Fetching profile picture", "js": "Exporting profile", "lf": "Collecting followers", "lg": "Collecting following"}
+              "pp": "Fetching profile picture", "lf": "Collecting followers", "lg": "Collecting following"}
 
     async def _run(self, bot, chat_id: int, act: str, username: str, n: int = 0, hl_pk: str = "") -> None:
         if act == "hl":
@@ -320,32 +307,6 @@ class DumpModule(BaseModule):
             if not data:
                 raise RuntimeError("No profile picture could be downloaded.")
             await send_one(bot, chat_id, "photo", data, f"🖼 @{_esc(username)}")
-            return 0, 0
-
-        if act == "js":
-            user = await self._profile(username)
-            doc = {
-                "pk": str(user.pk),
-                "username": user.username,
-                "full_name": user.full_name,
-                "biography": user.biography,
-                "external_url": str(user.external_url) if user.external_url else None,
-                "is_verified": user.is_verified,
-                "is_private": user.is_private,
-                "is_business": user.is_business,
-                "category": user.category or user.category_name,
-                "media_count": user.media_count,
-                "follower_count": user.follower_count,
-                "following_count": user.following_count,
-                "profile_pic_url_hd": str(user.profile_pic_url_hd or user.profile_pic_url or ""),
-            }
-            doc.update(self._extras(user))
-            doc["about"] = await self._about(user)
-            if not user.is_private:
-                medias = await self._ig(lambda: self.ctx.ig.cl.user_medias(str(user.pk), 12))
-                doc["recent_posts"] = [self._post_meta(m) for m in medias]
-            raw = json.dumps(doc, indent=2, ensure_ascii=False, default=str).encode("utf-8")
-            await bot.send_document(chat_id, document=InputFile(io.BytesIO(raw), filename=f"{username}_profile.json"))
             return 0, 0
 
         user = await self._public_profile(username)
@@ -698,7 +659,7 @@ class DumpModule(BaseModule):
     async def cmd_profile(self, args, update):
         username = await self._target(args, update, "/profile <username or link>")
         if username:
-            await self._card_message(update, username, detailed=True, with_menu=False)
+            await self._card_message(update, username, detailed=True, with_menu=True)
 
     async def _simple(self, args, update, usage: str, act: str, default: int = 0, cap: int = 0) -> None:
         username = await self._target(args, update, usage)
@@ -768,7 +729,7 @@ class DumpModule(BaseModule):
 
         if act == "cu":
             kind, _, who = arg.partition(":")
-            if kind in ("p", "r", "lf", "lg") and USERNAME_RE.match(who):
+            if kind in ("lf", "lg") and USERNAME_RE.match(who):
                 self._awaiting[chat_id] = (kind, who)
                 cap = {"p": POSTS_MAX, "r": REELS_MAX}.get(kind, LIST_MAX)
                 await bot.send_message(chat_id, f"Send a number from 1 to {cap} for @{who}, or send cancel.")
@@ -816,7 +777,7 @@ class DumpModule(BaseModule):
         listed = re.fullmatch(r"l([fg])(\d+)", act)
         if listed:
             await self._run(bot, chat_id, "l" + listed.group(1), username, int(listed.group(2)))
-        elif act in ("pp", "st", "hl", "js"):
+        elif act in ("pp", "st", "hl"):
             await self._run(bot, chat_id, act, username)
 
     def is_awaiting(self, chat_id: int) -> bool:

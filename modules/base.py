@@ -40,6 +40,3 @@ class BaseModule:
 
     async def on_text(self, text: str, update) -> bool:
         return False
-
-    async def process(self, message):
-        return message

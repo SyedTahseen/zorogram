@@ -493,12 +493,6 @@ class AuthManager:
         finally:
             self._in_login = False
 
-    def relogin_sync(self) -> None:
-        self._relogin_core(self.cl)
-
-    def logout_sync(self) -> None:
-        self.cl.logout()
-
     async def load_session(self) -> dict | None:
         data = await self.store.get(self.SESSION)
         if not isinstance(data, dict) or "uuids" not in data:

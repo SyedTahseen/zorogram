@@ -4,7 +4,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-from datetime import timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
