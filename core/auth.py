@@ -53,7 +53,7 @@ class CookieError(Exception):
 
 
 class CooldownError(RuntimeError):
-    """Raised instead of calling Instagram while an account is cooling down after a throttle."""
+    pass
 
 
 def parse_cookie_input(raw: str) -> str:
@@ -224,7 +224,6 @@ _NOT_FOUND_NAMES = {
 
 
 def _has_name(e: Exception, names: set) -> bool:
-    # Matched by name: these classes only exist in some instagrapi releases.
     return any(cls.__name__ in names for cls in type(e).__mro__)
 
 

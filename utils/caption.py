@@ -1,4 +1,3 @@
-"""One caption style for everything the bot sends: pasted links, /posts, /reels, /stories, highlights."""
 import html
 import re
 from datetime import timezone
@@ -80,7 +79,6 @@ def build_zip_caption(kind: str, username: str, url: str, files: int, size_bytes
 
 
 def label_of(m, kind: str) -> str:
-    """Name shown in the caption header. Mirrors what the pasted-link downloader calls things."""
     if kind in ("story", "highlight", "reel"):
         return kind
     media_type = int(getattr(m, "media_type", 0) or 0)

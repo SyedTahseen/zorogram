@@ -16,8 +16,8 @@ from core.auth import describe_error
 from modules.base import BaseModule
 from utils.logger import get_logger
 from utils.progress import Progress
-from utils.caption import CAPTION_LIMIT, CAPTION_TZ, build_caption, fmt_size, short_num  # noqa: F401
-from utils.tgsend import DONE_REACTION, clip, esc, send_one, set_reaction  # noqa: F401
+from utils.caption import CAPTION_LIMIT, CAPTION_TZ, build_caption, fmt_size, short_num
+from utils.tgsend import DONE_REACTION, clip, esc, send_one, set_reaction
 from utils.ui import BUSY, NOT_CONNECTED, bad
 
 TELEGRAM_MAX_BYTES = 50 * 1024 * 1024
@@ -193,7 +193,6 @@ class AutoDownloadModule(BaseModule):
 
     @staticmethod
     def _shared_highlight_pk(url: str) -> str | None:
-        """Share links look like /s/<base64 of "highlight:<pk>">?story_media_id=..., so no network is needed."""
         parts = [p for p in urlparse(url).path.split("/") if p]
         if len(parts) < 2 or parts[0].lower() != "s":
             return None

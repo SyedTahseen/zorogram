@@ -3,9 +3,8 @@ from pathlib import Path
 
 
 class ZipParts:
-    """Write files into one or more .zip archives, each kept under a size limit (Telegram caps uploads)."""
 
-    OVERHEAD = 200  # rough per-entry zip header cost
+    OVERHEAD = 200
 
     def __init__(self, folder: Path, stem: str, limit: int):
         self.folder = folder
@@ -19,7 +18,6 @@ class ZipParts:
     def _roll(self) -> None:
         self._close()
         path = self.folder / f"{self.stem}_part{len(self.parts) + 1}.zip"
-        # Photos and videos are already compressed, so just store them.
         self._zf = zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED, allowZip64=True)
         self.parts.append(path)
         self.counts.append(0)

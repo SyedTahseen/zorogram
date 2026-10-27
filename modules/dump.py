@@ -29,11 +29,10 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 URL_RE = re.compile(r"^(?:https?://)?(?:www\.|m\.)?(?:instagram\.com|instagr\.am)/([A-Za-z0-9._]{1,30})/?(?:[?#].*)?$", re.I)
 RESERVED = {"p", "reel", "reels", "stories", "explore", "tv", "accounts", "direct", "s"}
 
-# No default count: without a number the bot reads everything, up to this safety cap.
 POSTS_MAX = REELS_MAX = 500
 LIST_DEFAULT, LIST_MAX = 200, 2000
 HIGHLIGHT_BUTTONS = 20
-ZIP_THRESHOLD = 10  # fewer than this many items are sent normally; this many or more ask "ZIP or one by one?"
+ZIP_THRESHOLD = 10
 PENDING_TTL = 30 * 60
 PREFIX = "dump"
 NOT_USERNAMES = {
@@ -45,12 +44,12 @@ NOT_USERNAMES = {
 @dataclass
 class Batch:
     medias: list
-    kind: str  # post | reel | story | highlight
+    kind: str
     username: str
-    title: str = ""  # highlight title
-    url: str = ""  # highlight link
-    date: object = None  # highlight date
-    capped: bool = False  # the account has more than the safety cap
+    title: str = ""
+    url: str = ""
+    date: object = None
+    capped: bool = False
     made: float = field(default_factory=time.monotonic)
 
 
@@ -137,12 +136,11 @@ class DumpModule(BaseModule):
 
     @staticmethod
     def _read_about(cl, pk: str) -> dict:
-        """About this account. instagrapi's own parser raises IndexError or a ValidationError on many accounts, so fall back to reading its raw reply."""
         try:
             about = cl.user_about_v1(pk)
             return {"country": about.country, "date_joined": about.date, "former_usernames": about.former_usernames,
                     "is_verified": about.is_verified}
-        except Exception:  # IndexError / pydantic ValidationError from the library's parser
+        except Exception:
             pass
         reply = cl.last_json or {}
         country, joined, former = None, None, None
@@ -162,7 +160,6 @@ class DumpModule(BaseModule):
                 "is_verified": '"Verified"' in json.dumps(reply)}
 
     async def _about(self, user) -> dict | None:
-        # "About this account" (country, join date, former usernames); not every account exposes it.
         try:
             about = await self._ig(lambda: self._read_about(self.ctx.ig.cl, str(user.pk)))
         except Exception as e:
@@ -172,7 +169,6 @@ class DumpModule(BaseModule):
 
     @staticmethod
     def _extras(u) -> dict:
-        # Optional User fields: only present for some accounts (mostly business profiles).
         phone = getattr(u, "contact_phone_number", None) or (
             f"+{u.public_phone_country_code} {u.public_phone_number}"
             if getattr(u, "public_phone_number", None) and getattr(u, "public_phone_country_code", None)
@@ -234,7 +230,6 @@ class DumpModule(BaseModule):
     def _menu(username: str, private: bool) -> InlineKeyboardMarkup | None:
         if private:
             return None
-        # Same behaviour as /posts, /reels, /stories and /highlights: one tap, no count menu.
         return InlineKeyboardMarkup([
             [_btn("Posts", "p0", username), _btn("Reels", "r0", username)],
             [_btn("Stories", "st", username), _btn("Highlights", "hl", username)],
@@ -391,7 +386,6 @@ class DumpModule(BaseModule):
         return sent, len(medias)
 
     async def _send_highlight(self, bot, chat_id, status, batch: Batch) -> tuple[int, int]:
-        """Same as a pasted highlight link: the stories go out together as albums, under one caption."""
         items = batch.medias
         sent = 0
         for start in range(0, len(items), 10):
@@ -411,7 +405,6 @@ class DumpModule(BaseModule):
                 await asyncio.sleep(random.uniform(0.8, 1.8))
         return min(sent, len(items)), len(items)
 
-    # ---- "10 or more" choice: ZIP or one by one -------------------------------------------------
 
     async def _offer_zip(self, chat_id: int, status, batch: Batch) -> None:
         self._seq += 1
@@ -535,7 +528,7 @@ class DumpModule(BaseModule):
             rows.append(row)
         text = screen(f"Highlights of @{username}", "Tap one to download it.")
         markup = InlineKeyboardMarkup(rows)
-        try:  # turn the progress message into the list
+        try:
             await status.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
         except TelegramError:
             await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
@@ -640,7 +633,7 @@ class DumpModule(BaseModule):
         while len(self._search) > self.SEARCH_CHATS:
             self._search.pop(next(iter(self._search)))
         text, markup = self._search_view(chat_id, 1)
-        try:  # turn the progress message into the results
+        try:
             await status.message.edit_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
         except TelegramError:
             await message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
@@ -654,7 +647,7 @@ class DumpModule(BaseModule):
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
         except Exception:
-            pass  # same page tapped twice: nothing to change
+            pass
 
     async def cmd_profile(self, args, update):
         username = await self._target(args, update, "/profile <username or link>")

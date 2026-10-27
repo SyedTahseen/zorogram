@@ -121,7 +121,6 @@ async def fetch_items(items: list[tuple[str, str]], fetch: Fetch) -> list[tuple[
 
 
 async def send_files(bot, chat_id: int, files: list[tuple[str, bytes]], caption: str) -> int:
-    """Send downloaded files, in albums of up to 10. The caption goes on the first message only."""
     if not files:
         return 0
     for start in range(0, len(files), 10):

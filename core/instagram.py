@@ -8,7 +8,7 @@ from utils.logger import get_logger
 log = get_logger("instagram")
 
 SAVE_EVERY = 300
-COOLDOWN = 300  # seconds without Instagram calls after a throttle or feedback_required
+COOLDOWN = 300
 
 
 class InstagramClient:
@@ -32,7 +32,6 @@ class InstagramClient:
         return self.cfg.ig_username or getattr(self.cl, "username", "") or ""
 
     async def _call(self, fn, *args, raw: bool = False):
-        # raw=True is for login/session housekeeping: it ignores and never starts a cooldown.
         if not raw:
             left = self._cooldown_until - time.monotonic()
             if left > 0:
@@ -51,7 +50,6 @@ class InstagramClient:
         return result
 
     async def _maybe_save(self) -> None:
-        # instagrapi can refresh session data while running; persist it now and then, not only at login/shutdown.
         if not self.logged_in or time.monotonic() - self._last_save < SAVE_EVERY:
             return
         self._last_save = time.monotonic()

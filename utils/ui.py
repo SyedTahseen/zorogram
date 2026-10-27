@@ -25,8 +25,6 @@ def kb(*rows) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([list(r) for r in rows if r])
 
 
-# Telegram button colors (Bot API 9.4): "success" = green, "danger" = red, "primary" = blue.
-# Anything not listed keeps Telegram's default look. Older Telegram apps just show normal buttons.
 GREEN, RED, BLUE = "success", "danger", "primary"
 STYLE_BY_LABEL = {
     "Connect": GREEN,
@@ -51,7 +49,7 @@ def button(text: str, style: str | None = None, **kwargs) -> InlineKeyboardButto
         return InlineKeyboardButton(text, **kwargs)
     try:
         return InlineKeyboardButton(text, style=style, **kwargs)
-    except TypeError:  # python-telegram-bot older than the Bot API 9.4 release: send the field as-is
+    except TypeError:
         return InlineKeyboardButton(text, api_kwargs={"style": style}, **kwargs)
 
 

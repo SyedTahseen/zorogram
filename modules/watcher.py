@@ -21,15 +21,12 @@ from utils.ui import BLUE, CORE_COMMANDS, NOT_CONNECTED, bad, btn, kb, onoff, sc
 
 log = get_logger("watcher")
 
-# (seconds between quick checks, gap between accounts, seconds between slow checks)
-# Quick checks = new posts/reels and stories (what you want to hear about fast): 2 Instagram calls.
-# Slow checks = profile changes, highlights, edits/removals, milestones: they change rarely.
 PACES = {
     "safe": (600, (10.0, 20.0), 1800),
     "normal": (300, (6.0, 14.0), 1200),
     "fast": (180, (4.0, 8.0), 900),
 }
-FAST_POSTS = 8  # latest posts read on a quick check (leaves room for pinned posts)
+FAST_POSTS = 8
 TICK = 60
 MAX_NEW_PER_CHECK = 5
 THROTTLE_PAUSE = 900
